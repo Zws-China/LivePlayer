@@ -118,7 +118,7 @@
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor whiteColor];
     self.navigationController.delegate = self;
-    
+    self.navigationItem.title = @"ZWS";
     [self requestHederBanner];//请求头部滚动的网络数据
     
     [self requestCellContent];//获取主播列表数据
@@ -162,7 +162,8 @@
         }];
 
         
-        
+        [self.collection reloadData];
+
         
     } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
         NSLog(@"请求数据失败");
