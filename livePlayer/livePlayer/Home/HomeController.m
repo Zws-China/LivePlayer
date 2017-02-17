@@ -21,6 +21,7 @@
 #import "CollectionCellModel.h"
 
 #import "MJExtension.h"
+#import "MJRefresh.h"
 
 
 
@@ -42,7 +43,7 @@
 
 
 
-@interface HomeController ()<UICollectionViewDelegate,UICollectionViewDataSource,HomeCycleViewDelegate,UINavigationControllerDelegate>
+@interface HomeController ()<UICollectionViewDelegate,UICollectionViewDataSource,UICollectionViewDelegateFlowLayout,HomeCycleViewDelegate,UINavigationControllerDelegate>
 
 @property (nonatomic, strong) UICollectionView *collection;
 
@@ -76,7 +77,7 @@
  */
 @property (nonatomic, strong) NSMutableArray *sectionDataArray;
 
-
+@property (nonatomic, strong) AFHTTPRequestOperationManager *manager;
 @end
 
 @implementation HomeController
@@ -112,114 +113,31 @@
     }
     return _sectionDataArray;
 }
-
+- (AFHTTPRequestOperationManager *)manager {
+    if (!_manager) {
+        _manager = [AFHTTPRequestOperationManager manager];
+        _manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"application/json", @"text/json", @"text/plain",@"text/html", nil];
+        _manager.requestSerializer = [AFHTTPRequestSerializer serializer];
+    }
+    return _manager;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor whiteColor];
     self.navigationController.delegate = self;
     self.navigationItem.title = @"ZWS";
+    [self creatCollectionView];//创建CollectionView
+
     [self requestHederBanner];//请求头部滚动的网络数据
     
     [self requestCellContent];//获取主播列表数据
     
     
-    [self creatCollectionView];//创建CollectionView
 
+    [self refresh];
 
 }
-
-- (void)requestHederBanner {
-    
-    AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
-    manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"application/json", @"text/json", @"text/plain",@"text/html", nil];
-    manager.requestSerializer = [AFHTTPRequestSerializer serializer];
-
-    [manager GET:@"http://www.zhanqi.tv/api/touch/apps.banner?rand=1455848328344" parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
-        if (![responseObject isKindOfClass:[NSDictionary class]]) {
-            NSLog(@"返回格式不是JSON");
-            return;
-        }
-        NSDictionary *dic = (NSDictionary *)responseObject;
-        
-        int code;
-        id value = [dic objectForKey:@"code"];
-        if ([value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]]) {
-            code = [value intValue];
-        }
-        else {
-            code = 0;
-        }
-        
-        NSArray *dataArr = dic[@"data"];
-        [dataArr enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-            BannerModel *bannerModel = [BannerModel mj_objectWithKeyValues:(NSDictionary *)obj];
-            [self.banderModelArray addObject:bannerModel];
-
-
-            RoomModel *roomModel = [RoomModel mj_objectWithKeyValues:(NSDictionary *)bannerModel.room];
-            [self.roomModelArray addObject:roomModel];
-        }];
-
-        
-        [self.collection reloadData];
-
-        
-    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
-        NSLog(@"请求数据失败");
-
-    }];
-    
-    
-    
-}
-#pragma mark - 发送网络请求，获取主播列表数据
-- (void)requestCellContent {
-    
-    AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
-    manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"application/json", @"text/json", @"text/plain",@"text/html", nil];
-    manager.requestSerializer = [AFHTTPRequestSerializer serializer];
-    
-    
-    [manager GET:@"http://www.zhanqi.tv/api/static/live.index/recommend-apps.json?" parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
-        
-        if (![responseObject isKindOfClass:[NSDictionary class]]) {
-            NSLog(@"返回格式错误");
-            return;
-        }
-        NSDictionary *dic = (NSDictionary *)responseObject;
-        int code;
-        id value = [dic objectForKey:@"code"];
-        if ([value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]]) {
-            code = [value intValue];
-        }
-        else {
-            code = 0;
-        }
-        
-        NSArray *arr = dic[@"data"];
-        for (NSDictionary *dictionary in arr) {
-            HomeSectionModel *sectionModel = [HomeSectionModel mj_objectWithKeyValues:dictionary];
-            [self.sectionTitleDataArray addObject:sectionModel]; //外围标题模型
-            
-            [self.avatarDataArray removeAllObjects];
-            for (CollectionCellModel *cellModel in sectionModel.lists) {
-                //self.avatarDataArray数组  装五个房间的信息
-                [self.avatarDataArray addObject:cellModel];
-            }
-            //self.sectionDataArray 装多个分类的数组，self.sectionDataArray下装有多个（热门直播，竞技网游，随拍）分类，每个分类的数组下有五个房间信息
-            [self.sectionDataArray addObject:self.avatarDataArray.copy];
-        }
-        [self.collection reloadData];
-        
-    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
-        NSLog(@"获取失败");
-
-    }];
-    
-    
-}
-
 - (void)creatCollectionView {
     
     UICollectionViewFlowLayout *flowLayout = [[UICollectionViewFlowLayout alloc]init];
@@ -238,8 +156,105 @@
     [self.collection registerClass:[HomeCycleView class] forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:IDENTIFIER_HEADER];
     
     [self.view addSubview:self.collection];
-
+    
+    
 }
+
+
+//#pragma mark - 刷新数据
+- (void)refresh{
+    
+    // 下拉刷新
+    self.collection.mj_header= [MJRefreshNormalHeader headerWithRefreshingBlock:^{
+//        [self.sectionTitleDataArray removeAllObjects];
+//        [self.banderModelArray removeAllObjects];
+//        [self.roomModelArray removeAllObjects];
+//        [self.sectionDataArray removeAllObjects];
+//        [self.avatarDataArray removeAllObjects];
+        
+        //重新获取网络数据
+        [self requestHederBanner];
+        [self requestCellContent];
+        
+    }];
+    
+}
+
+
+#pragma  mark - 获取首页bander数据
+- (void)requestHederBanner {
+
+    
+    [self.manager GET:@"http://www.zhanqi.tv/api/touch/apps.banner?rand=1455848328344" parameters:nil success:^(AFHTTPRequestOperation * _Nonnull operation, id  _Nonnull responseObject) {
+        
+        if (![responseObject isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"返回格式不是JSON");
+            return;
+        }
+        NSDictionary *dic = (NSDictionary *)responseObject;
+        
+        NSArray *dataArr = dic[@"data"];
+        [self.banderModelArray removeAllObjects];
+        [self.roomModelArray removeAllObjects];
+        
+        [dataArr enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+            BannerModel *bannerModel = [BannerModel mj_objectWithKeyValues:(NSDictionary *)obj];
+            RoomModel *roomModel = [RoomModel mj_objectWithKeyValues:(NSDictionary *)bannerModel.room];
+            [self.roomModelArray addObject:roomModel];
+            [self.banderModelArray addObject:bannerModel];
+        }];
+        
+        [self.collection reloadData];
+        [self.collection.mj_header endRefreshing];//停止刷新
+
+        
+    } failure:^(AFHTTPRequestOperation * _Nullable operation, NSError * _Nonnull error) {
+        NSLog(@"请求数据失败");
+        [self.collection.mj_header endRefreshing];//停止刷新
+
+    }];
+    
+
+    
+}
+#pragma mark - 发送网络请求，获取主播列表数据
+- (void)requestCellContent {
+
+    [self.manager GET:@"http://www.zhanqi.tv/api/static/live.index/recommend-apps.json?" parameters:nil success:^(AFHTTPRequestOperation * _Nonnull operation, id  _Nonnull responseObject) {
+        
+        if (![responseObject isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"返回格式错误");
+            return;
+        }
+        NSDictionary *responseDic = (NSDictionary *)responseObject;
+        
+        NSArray *arr = responseDic[@"data"];
+        [self.sectionTitleDataArray removeAllObjects];
+        [self.sectionDataArray removeAllObjects];
+//        [self.avatarDataArray removeAllObjects];
+        
+        for (NSDictionary *dic in arr) {
+            HomeSectionModel *sectionModel = [HomeSectionModel mj_objectWithKeyValues:dic];
+            [self.sectionTitleDataArray addObject:sectionModel]; //外围标题模型
+            
+            [self.avatarDataArray removeAllObjects];
+            for (CollectionCellModel *cellModel in sectionModel.lists) {
+                //self.avatarDataArray数组  装五个房间的信息
+                [self.avatarDataArray addObject:cellModel];
+            }
+            //self.sectionDataArray 装多个分类的数组，self.sectionDataArray下装有多个（热门直播，竞技网游，随拍）分类，每个分类的数组下有五个房间信息
+            [self.sectionDataArray addObject:self.avatarDataArray.copy];
+        }
+        [self.collection reloadData];
+        
+        
+    } failure:^(AFHTTPRequestOperation * _Nullable operation, NSError * _Nonnull error) {
+        NSLog(@"获取失败");
+
+    }];
+    
+}
+
 
 
 #pragma mark - collectionDelegate and dataSourse
@@ -291,6 +306,7 @@
     HomeCell *cell = (HomeCell *)[collectionView dequeueReusableCellWithReuseIdentifier:IDENTIFIER_CELL forIndexPath:indexPath];
     cell.backgroundColor = [UIColor whiteColor];
     if (self.sectionDataArray) {
+        NSLog(@"sectionDataArray = %@",self.sectionDataArray);
         cell.model = (CollectionCellModel *)[[self.sectionDataArray objectAtIndex:indexPath.section] objectAtIndex:indexPath.row];
     }
     return cell;
